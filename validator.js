@@ -4,91 +4,122 @@ const compose = (...funcs) =>
     : funcs.length === 1
     ? funcs[0]
     : funcs.reduceRight((a, b) => (...args) => a(b(...args)));
-const getType = (obj) =>
-  Object.prototype.toString.call(obj).slice(8, -1).toLowerCase();
+const getType = (obj) => obj?.constructor;
+const isTypeOfObject = (obj, ...types) =>
+  types.some((type) => getType(obj) === type);
+const onlyIf = (booleanPredicate, expr) =>
+  (booleanPredicate || undefined) && isTypeOfObject(expr, Function)
+    ? expr()
+    : expr;
 const equal = (first, second) =>
   getType(first) === getType(second) &&
   JSON.stringify(first) === JSON.stringify(second);
 
 class Validator {
   _errors = [];
+  _availableTypes = [String, Number, Boolean, Object, Array].reduce(
+    (prev, cur) => ({ ...prev, [cur.name.toLowerCase()]: cur }),
+    {}
+  );
 
   get Errors() {
     return this._errors;
   }
 
   //validators
-  checkUnknownType = ({ type }) =>
-    type && ["string", "number", "boolean", "object", "array"].includes(type);
-  checkWrongType = ({ type, obj }) =>
-    type && (!this.checkNullable({ obj }) || getType(obj) === type);
   checkNullable = ({ nullable = false, obj }) =>
-    getType(nullable) === "boolean" ? obj !== null || nullable : undefined;
+    onlyIf(isTypeOfObject(nullable, Boolean), () => obj !== null || nullable);
+  checkUnknownType = ({ type }) =>
+    onlyIf(
+      isTypeOfObject(type, String),
+      () => this._availableTypes[type] !== undefined
+    );
+  checkWrongType = ({ type, obj }) =>
+    onlyIf(
+      isTypeOfObject(type, String),
+      () =>
+        !this.checkNullable({ obj }) ||
+        isTypeOfObject(obj, this._availableTypes[type])
+    );
   checkAnyOf = ({ anyOf, obj }) =>
-    getType(anyOf) === "array"
-      ? anyOf.some((type) => this.validate(type, obj).length === 0)
-      : undefined;
+    onlyIf(isTypeOfObject(anyOf, Array), () =>
+      anyOf.some((type) => this._isValid(type, obj))
+    );
   checkOneOf = ({ oneOf, obj }) =>
-    getType(oneOf) === "array"
-      ? oneOf.filter((type) => this.validate(type, obj).length === 0).length ===
-        1
-      : undefined;
+    onlyIf(
+      isTypeOfObject(oneOf, Array),
+      () => oneOf.filter((type) => this._isValid(type, obj)).length <= 1
+    );
   checkMinBound = ({ minimum, minItems, minLength, minProperties, obj }) =>
-    getType(obj) === "number"
-      ? minimum && obj >= minimum
-      : getType(obj) === "array"
-      ? minItems && obj.length >= minItems
-      : getType(obj) === "string"
-      ? minLength && obj.length >= minLength
-      : getType(obj) === "object"
-      ? minProperties && Object.keys(obj).length >= minProperties
-      : undefined;
+    ({
+      Number: onlyIf(isTypeOfObject(minimum, Number), () => obj >= minimum),
+      Array: onlyIf(
+        isTypeOfObject(minItems, Number),
+        () => obj.length >= minItems
+      ),
+      String: onlyIf(
+        isTypeOfObject(minLength, Number),
+        () => obj.length >= minLength
+      ),
+      Object: onlyIf(
+        isTypeOfObject(minProperties, Number),
+        () => Object.keys(obj).length >= minProperties
+      ),
+    }[getType(obj)?.name]);
   checkMaxBound = ({ maximum, maxItems, maxLength, maxProperties, obj }) =>
-    getType(obj) === "number"
-      ? maximum && obj <= maximum
-      : getType(obj) === "array"
-      ? maxItems && obj.length <= maxItems
-      : getType(obj) === "string"
-      ? maxLength && obj.length <= maxLength
-      : getType(obj) === "object"
-      ? maxProperties && Object.keys(obj).length <= maxProperties
-      : undefined;
+    ({
+      Number: onlyIf(isTypeOfObject(maximum, Number), () => obj <= maximum),
+      Array: onlyIf(
+        isTypeOfObject(maxItems, Number),
+        () => obj.length <= maxItems
+      ),
+      String: onlyIf(
+        isTypeOfObject(maxLength, Number),
+        () => obj.length <= maxLength
+      ),
+      Object: onlyIf(
+        isTypeOfObject(maxProperties, Number),
+        () => Object.keys(obj).length <= maxProperties
+      ),
+    }[getType(obj)?.name]);
   checkStringPattern = ({ pattern, obj }) =>
-    getType(obj) === "string" && getType(pattern) === "regexp"
-      ? pattern.test(obj)
-      : undefined;
+    onlyIf(isTypeOfObject(obj, String) && isTypeOfObject(pattern, RegExp), () =>
+      pattern.test(obj)
+    );
   checkStringFormat = ({ format, obj }) =>
-    format === "email"
-      ? this.checkStringPattern({
-          pattern: /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/,
-          obj,
-        })
-      : format === "date"
-      ? this.checkStringPattern({ pattern: /^\d{4}([-/])\d{2}\1\d{2}$/, obj })
-      : undefined;
+    this.checkStringPattern({
+      pattern: {
+        email: /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*$/,
+        date: /^\d{4}([-/])\d{2}\1\d{2}$/,
+      }[format],
+      obj,
+    });
   checkAvailableValues = ({ enum: availableValues, obj }) =>
-    getType(availableValues) === "array"
-      ? availableValues.some((value) => equal(obj, value))
-      : undefined;
+    onlyIf(isTypeOfObject(availableValues, Array), () =>
+      availableValues.some((value) => equal(obj, value))
+    );
   checkArrayType = ({ items, obj }) =>
-    getType(obj) === "array" &&
-    (getType(items) === "array" || getType(items) === "object")
-      ? obj.reduce(
+    onlyIf(
+      isTypeOfObject(obj, Array) && isTypeOfObject(items, Array, Object),
+      () =>
+        obj.reduce(
           (prev, cur) =>
             prev &&
-            (getType(items) === "array"
-              ? items.some((item) => this.validate(item, cur).length === 0)
-              : this.validate(items, cur).length === 0),
+            (isTypeOfObject(items, Array)
+              ? items.some((item) => this._isValid(item, cur))
+              : this._isValid(items, cur)),
           true
         )
-      : undefined;
+    );
   checkContains = ({ contains, obj }) =>
-    getType(obj) === "array" && contains !== undefined
-      ? obj.some((value) => equal(value, contains))
-      : undefined;
+    onlyIf(isTypeOfObject(obj, Array) && contains !== undefined, () =>
+      obj.some((value) => equal(value, contains))
+    );
   checkUnique = ({ uniqueItems, obj }) =>
-    getType(obj) === "array" && getType(uniqueItems) === "boolean"
-      ? obj.reduce(
+    onlyIf(
+      isTypeOfObject(obj, Array) && isTypeOfObject(uniqueItems, Boolean),
+      () =>
+        obj.reduce(
           (prev, cur) =>
             !prev.isUnique
               ? prev
@@ -97,32 +128,38 @@ class Validator {
               : { isUnique: prev.isUnique, array: [...prev.array, cur] },
           { array: [], isUnique: true }
         ).isUnique
-      : undefined;
+    );
   checkRequired = ({ required, obj }) =>
-    getType(obj) === "object" &&
-    (getType(required) === "array" || getType(required) === "string")
-      ? getType(required) === "array"
-        ? required.reduce((prev, cur) => prev && obj[cur] !== undefined, true)
-        : obj[required] !== undefined
-      : undefined;
+    onlyIf(
+      isTypeOfObject(obj, Object) && isTypeOfObject(required, Array, String),
+      {
+        Array: () =>
+          required.reduce((prev, cur) => prev && obj[cur] !== undefined, true),
+        String: () => obj[required] !== undefined,
+      }[getType(required)?.name]
+    );
   checkProperties = ({ properties, obj }) =>
-    getType(obj) === "object" && getType(properties) == "object"
-      ? Object.keys(obj).reduce(
+    onlyIf(
+      isTypeOfObject(obj, Object) && isTypeOfObject(properties, Object),
+      () =>
+        Object.keys(obj).reduce(
           (prev, cur) =>
             prev &&
             (properties[cur] === undefined ||
-              this.validate(properties[cur], obj[cur]).length === 0),
+              this._isValid(properties[cur], obj[cur])),
           true
         )
-      : undefined;
+    );
   checkExtraProperties = ({ additionalProperties, properties, obj }) =>
-    getType(obj) === "object" && getType(properties) == "object"
-      ? Object.keys(obj).reduce(
+    onlyIf(
+      isTypeOfObject(obj, Object) && isTypeOfObject(properties, Object),
+      () =>
+        Object.keys(obj).reduce(
           (prev, cur) =>
             prev && (additionalProperties || properties[cur] !== undefined),
           true
         )
-      : undefined;
+    );
 
   _makeErrorDecorator = (validator, params, msg) => (errors) =>
     validator(params) === false ? [...errors, msg] : errors;
@@ -131,29 +168,29 @@ class Validator {
     unknownType: "Unknown type",
     wrongType: "Type is incorrect",
     lessThanBound:
-      type === "number"
+      type === Number
         ? "Value is less than it can be"
-        : type === "string"
+        : type === String
         ? "Too short string"
-        : type === "array"
+        : type === Array
         ? "Items count less than can be"
-        : type === "object"
+        : type === Object
         ? "Too few properties in object"
         : undefined,
     greaterThanBound:
-      type === "number"
+      type === Number
         ? "Value is greater than it can be"
-        : type === "string"
+        : type === String
         ? "Too long string"
-        : type === "array"
+        : type === Array
         ? "Items count more than can be"
-        : type === "object"
+        : type === Object
         ? "Too many properties in object"
         : undefined,
     doesNotMatchPattern: "String does not match pattern",
     notValidFormat: "Format of string is not valid",
     notAvailableValue:
-      type === "array"
+      type === Array
         ? "The enum does not support one of array elements"
         : "The enum does not support value",
     notContainsValue: "Must contain a value, but does not",
@@ -164,7 +201,7 @@ class Validator {
     moreThanOneValidSchema: "More than one shema valid for this data",
     // shema xDDDDDDD
   });
-  validate = (schema = {}, obj, errors = []) =>
+  validate = (schema = {}, obj) =>
     ((makeError, errorMessages) =>
       compose(
         makeError(this.checkNullable, errorMessages.notNullableValue),
@@ -183,7 +220,7 @@ class Validator {
         makeError(this.checkRequired, errorMessages.undefinedRequiredProperty),
         makeError(this.checkProperties, errorMessages.wrongType),
         makeError(this.checkExtraProperties, errorMessages.additionalProperty)
-      )(errors))(
+      )([]))(
       (validator, message) =>
         this._makeErrorDecorator(
           validator,
@@ -192,6 +229,7 @@ class Validator {
         ),
       this.getErrorMessages(getType(obj))
     );
+  _isValid = (schema = {}, obj) => this.validate(schema, obj).length === 0;
   isValid = (schema = {}, obj) =>
-    (this._errors = this.validate(schema, obj, this._errors)).length === 0;
+    (this._errors = this.validate(schema, obj)).length === 0;
 }
