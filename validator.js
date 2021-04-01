@@ -46,36 +46,38 @@ class Validator {
     );
   checkMinBound = ({ minimum, minItems, minLength, minProperties, obj }) =>
     ({
-      [Number]: onlyIf(isTypeOfObject(minimum, Number), () => obj >= minimum),
-      [Array]: onlyIf(
-        isTypeOfObject(minItems, Number),
-        () => obj.length >= minItems
-      ),
-      [String]: onlyIf(
-        isTypeOfObject(minLength, Number),
-        () => obj.length >= minLength
-      ),
-      [Object]: onlyIf(
-        isTypeOfObject(minProperties, Number),
-        () => Object.keys(obj).length >= minProperties
-      ),
-    }[getType(obj)]);
+      [Number]: () =>
+        onlyIf(isTypeOfObject(minimum, Number), () => obj >= minimum),
+      [Array]: () =>
+        onlyIf(isTypeOfObject(minItems, Number), () => obj.length >= minItems),
+      [String]: () =>
+        onlyIf(
+          isTypeOfObject(minLength, Number),
+          () => obj.length >= minLength
+        ),
+      [Object]: () =>
+        onlyIf(
+          isTypeOfObject(minProperties, Number),
+          () => Object.keys(obj).length >= minProperties
+        ),
+    }[getType(obj)]?.call(this));
   checkMaxBound = ({ maximum, maxItems, maxLength, maxProperties, obj }) =>
     ({
-      [Number]: onlyIf(isTypeOfObject(maximum, Number), () => obj <= maximum),
-      [Array]: onlyIf(
-        isTypeOfObject(maxItems, Number),
-        () => obj.length <= maxItems
-      ),
-      [String]: onlyIf(
-        isTypeOfObject(maxLength, Number),
-        () => obj.length <= maxLength
-      ),
-      [Object]: onlyIf(
-        isTypeOfObject(maxProperties, Number),
-        () => Object.keys(obj).length <= maxProperties
-      ),
-    }[getType(obj)]);
+      [Number]: () =>
+        onlyIf(isTypeOfObject(maximum, Number), () => obj <= maximum),
+      [Array]: () =>
+        onlyIf(isTypeOfObject(maxItems, Number), () => obj.length <= maxItems),
+      [String]: () =>
+        onlyIf(
+          isTypeOfObject(maxLength, Number),
+          () => obj.length <= maxLength
+        ),
+      [Object]: () =>
+        onlyIf(
+          isTypeOfObject(maxProperties, Number),
+          () => Object.keys(obj).length <= maxProperties
+        ),
+    }[getType(obj)]?.call(this));
   checkStringPattern = ({ pattern, obj }) =>
     onlyIf(isTypeOfObject(obj, String) && isTypeOfObject(pattern, RegExp), () =>
       pattern.test(obj)
