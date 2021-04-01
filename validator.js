@@ -261,3 +261,5 @@ class Validator {
   isValid = (schema = {}, obj) =>
     (this._errors = this.validate(schema, obj).errors).length === 0;
 }
+
+module.exports = { Validator };
